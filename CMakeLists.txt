@@ -1,5 +1,9 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.0)
+
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
+
 project(eRPC)
+
 
 include(CMakeDependentOption)
 
@@ -16,6 +20,7 @@ set(LIBRARIES ${LIBRARIES} rt numa pthread gflags)
 # Unit tests
 enable_testing()
 find_package(GTest REQUIRED)
+find_package(GFlags REQUIRED)
 
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/third_party)
@@ -144,18 +149,10 @@ add_definitions(-DERPC_${DEFINE_TRANSPORT}=true)
 message(STATUS "Selected transport = ${TRANSPORT}.")
 set(CONFIG_IS_ROCE false)
 
-if(TRANSPORT STREQUAL "dpdk")
+if("${TRANSPORT}" STREQUAL "dpdk")
   set(CONFIG_TRANSPORT "DpdkTransport")
   set(CONFIG_HEADROOM 40)
   set(DPDK_NEEDED "true") # We'll resolve DPDK later
-
-  if(AZURE)
-    set(CONFIG_IS_AZURE true)
-    message(STATUS "Configuring DPDK for Azure")
-  else()
-    set(CONFIG_IS_AZURE false)
-    message(STATUS "Configuring DPDK for bare-metal cluster (i.e., not Azure)")
-  endif()
 else()
   find_library(IBVERBS_LIB ibverbs)
   if(NOT IBVERBS_LIB)
@@ -178,7 +175,16 @@ else()
   endif()
 endif()
 
+if(AZURE)
+  set(CONFIG_IS_AZURE true)
+  message(STATUS "Configuring DPDK for Azure")
+else()
+  set(CONFIG_IS_AZURE false)
+  message(STATUS "Configuring DPDK for bare-metal cluster (i.e., not Azure)")
+endif()
+
 configure_file(src/config.h.in src/config.h)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/src)
 
 # MICA sources
 set(MICA_SOURCES
@@ -307,12 +313,14 @@ endif()
 
 if(DPDK_NEEDED STREQUAL "true")
   message(STATUS "DPDK needed to build eRPC")
-  find_library(DPDK_LIB dpdk)
-  if(NOT DPDK_LIB)
-    message(FATAL_ERROR "DPDK library not found")
+  find_library(DPDK REQUIRED)
+  if(NOT ${DPDK_FOUND})
+    message(STATUS "DPDK library not found")
+    set(LIBRARIES ${LIBRARIES} -Wl,--whole-archive -ldpdk -Wl,--no-whole-archive numa dl ibverbs mlx4 mlx5)
+  else()
+    message(STATUS "DPDK WAS FOUND with ${DPDK_INCLUDE_DIR} , ${DPDK_LIBRARIES}")
+    set(LIBRARIES ${LIBRARIES} -Wl,--whole-archive dpdk -Wl,--no-whole-archive numa dl ibverbs mlx4 mlx5)
   endif()
-
-  set(LIBRARIES ${LIBRARIES} -Wl,--whole-archive dpdk -Wl,--no-whole-archive numa dl ibverbs mlx4 mlx5)
 
   # DPDK include directory. Locating rte_config.h does not work on some systems.
   # Example: it may be kept in /usr/include/x86_64-linux-gnu/, and symlinked
@@ -323,7 +331,10 @@ if(DPDK_NEEDED STREQUAL "true")
   else()
     message(FATAL_ERROR "DPDK include directory not found")
   endif()
-  include_directories(SYSTEM ${DPDK_INCLUDE_DIR})
+
+  find_path(DPDK_SECOND_INCLUDE_DIR NAMES rte_config.h PATH_SUFFIXES dpdk)
+
+  include_directories(SYSTEM ${DPDK_INCLUDE_DIR} ${DPDK_SECOND_INCLUDE_DIR})
 else()
   message(STATUS "DPDK not needed to build eRPC")
 endif()

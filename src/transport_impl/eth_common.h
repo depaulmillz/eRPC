@@ -16,8 +16,10 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+
 #include <sstream>
 #include <string>
+
 #include "common.h"
 
 namespace erpc {
@@ -95,7 +97,7 @@ struct ipv4_hdr_t {
         << ", dst IP " << ipv4_to_string(dst_ip) << "]";
     return ret.str();
   }
-} __attribute__((packed));
+} __attribute__((packed)) __attribute__((aligned(sizeof(uint16_t))));
 
 struct udp_hdr_t {
   uint16_t src_port;
