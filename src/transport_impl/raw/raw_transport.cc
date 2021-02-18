@@ -198,6 +198,11 @@ void RawTransport::init_mp_recv_qp() {
   wq_init_attr.mp_rq.single_wqe_log_num_of_strides = kLogNumStrides;
   wq_init_attr.mp_rq.single_stride_log_num_of_bytes = kLogStrideBytes;
   wq = ibv_exp_create_wq(resolve.ib_ctx, &wq_init_attr);
+  
+  if(wq == nullptr){
+	perror("Err");
+  }
+
   rt_assert(wq != nullptr, "Failed to create WQ");
 
   // Change WQ to ready state
