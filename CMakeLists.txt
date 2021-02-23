@@ -224,10 +224,10 @@ set(UTIL_TESTS
   numautil_test)
 
 # Compile the library
-add_library(erpc ${SOURCES})
+add_library(erpc STATIC ${SOURCES})
 target_include_directories(erpc PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/src)
-include_directories(erpc PUBLIC ${CMAKE_SOURCE_DIR}/src)
-include_directories(erpc PUBLIC ${CMAKE_SOURCE_DIR}/third_party)
+target_include_directories(erpc PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(erpc PUBLIC ${CMAKE_SOURCE_DIR}/third_party)
 
 if(DPDK_NEEDED STREQUAL "true")
   message(STATUS "DPDK needed to build eRPC")
