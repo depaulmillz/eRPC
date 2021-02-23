@@ -13,7 +13,7 @@ include(CMakeDependentOption)
 
 add_definitions(-std=c++11 -march=native -g)
 add_definitions(-Wall -Wextra -Werror -pedantic -Wsign-conversion -Wold-style-cast)
-add_definitions(-Wno-unused-function -Wno-deprecated-declarations -Wno-error=format-zero-length)
+add_definitions(-Wno-error=format-zero-length -Wno-unused-function -Wno-deprecated-declarations)
 
 set(LIBRARIES ${LIBRARIES} rt numa pthread)
 
@@ -355,7 +355,7 @@ endif()
 # compiling with liberpc.
 add_executable(${APP} apps/${APP}/${APP}.cc ${APP_ADDITIONAL_SOURCES} ${SOURCES})
 target_compile_options(${APP} PRIVATE "-flto")
-target_link_libraries(${APP} ${LIBRARIES} gflags_static)
+target_link_libraries(${APP} ${LIBRARIES} ${GTEST_LIBRARIES} gflags_static)
 
 install(TARGETS erpc
         LIBRARY DESTINATION lib
