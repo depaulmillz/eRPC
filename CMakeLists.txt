@@ -1,33 +1,27 @@
 cmake_minimum_required(VERSION 3.0)
 
-list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake)
-
 project(eRPC)
 
+find_package(GTest CONFIG REQUIRED)
+find_package(GFlags CONFIG REQUIRED)
 
 include(CMakeDependentOption)
 
 # Pick a compiler
 #set(CMAKE_CXX_COMPILER clang++)
-set(CMAKE_CXX_COMPILER g++)
+#set(CMAKE_CXX_COMPILER g++)
 
 add_definitions(-std=c++11 -march=native -g)
 add_definitions(-Wall -Wextra -Werror -pedantic -Wsign-conversion -Wold-style-cast)
-add_definitions(-Wno-unused-function -Wno-nested-anon-types -Wno-keyword-macro -Wno-deprecated-declarations)
+add_definitions(-Wno-unused-function -Wno-deprecated-declarations -Wno-error=format-zero-length)
 
-set(LIBRARIES ${LIBRARIES} rt numa pthread gflags)
+set(LIBRARIES ${LIBRARIES} rt numa pthread)
 
 # Unit tests
 enable_testing()
-find_package(GTest REQUIRED)
-find_package(GFlags REQUIRED)
 
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/third_party)
-
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/build)
 
 # DPDK may be needed for different reasons (e.g., the transport is DPDK, or
 # if the transport is not DPDK but the application needs DPDK libraries)
@@ -231,31 +225,75 @@ set(UTIL_TESTS
 
 # Compile the library
 add_library(erpc ${SOURCES})
+target_include_directories(erpc PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/src)
+include_directories(erpc PUBLIC ${CMAKE_SOURCE_DIR}/src)
+include_directories(erpc PUBLIC ${CMAKE_SOURCE_DIR}/third_party)
+
+if(DPDK_NEEDED STREQUAL "true")
+  message(STATUS "DPDK needed to build eRPC")
+  find_library(DPDK CONFIG)
+  if(NOT ${DPDK_FOUND})
+    message(STATUS "DPDK library not found")
+    set(LIBRARIES ${LIBRARIES} -Wl,--whole-archive -ldpdk -Wl,--no-whole-archive numa dl ibverbs mlx4 mlx5)
+  else()
+    message(STATUS "DPDK WAS FOUND with ${DPDK_INCLUDE_DIR} , ${DPDK_LIBRARIES}")
+
+    if(NOT DEFINED DPDK_LIBRARIES)
+      set(DPDK_LIBRARIES -lrte_telemetry -lrte_bpf -lrte_flow_classify -lrte_pipeline -lrte_table -lrte_port -lrte_fib -lrte_ipsec -lrte_vhost -lrte_stack -lrte_security -lrte_sched -lrte_reorder -lrte_rib -lrte_rcu -lrte_rawdev -lrte_pdump -lrte_power -lrte_member -lrte_lpm -lrte_latencystats -lrte_kni -lrte_jobstats -lrte_ip_frag -lrte_gso -lrte_gro -lrte_eventdev -lrte_efd -lrte_distributor -lrte_cryptodev -lrte_compressdev -lrte_cfgfile -lrte_bitratestats -lrte_bbdev -lrte_acl -lrte_timer -lrte_hash -lrte_metrics -lrte_cmdline -lrte_pci -lrte_ethdev -lrte_meter -lrte_net -lrte_mbuf -lrte_mempool -lrte_ring -lrte_eal -lrte_kvargs -lbsd)
+      set(LIBRARIES ${LIBRARIES} ${DPDK_LIBRARIES})
+    else()
+      set(LIBRARIES ${LIBRARIES} -Wl,--whole-archive dpdk -Wl,--no-whole-archive numa dl ibverbs mlx4 mlx5)
+    endif()
+
+  endif()
+
+  # DPDK include directory. Locating rte_config.h does not work on some systems.
+  # Example: it may be kept in /usr/include/x86_64-linux-gnu/, and symlinked
+  # from the real DPDK include directory (/usr/include/dpdk/).
+  find_path(DPDK_INCLUDE_DIR NAMES rte_ethdev.h PATH_SUFFIXES dpdk)
+  if (DPDK_INCLUDE_DIR)
+    message(STATUS "DPDK include directory = ${DPDK_INCLUDE_DIR}")
+  else()
+    message(FATAL_ERROR "DPDK include directory not found")
+  endif()
+
+  find_path(DPDK_SECOND_INCLUDE_DIR NAMES rte_config.h PATH_SUFFIXES dpdk)
+
+  include_directories(SYSTEM ${DPDK_INCLUDE_DIR} ${DPDK_SECOND_INCLUDE_DIR})
+else()
+  message(STATUS "DPDK not needed to build eRPC")
+endif()
 
 # Compile the tests
 if(TESTING)
   foreach(test_name IN LISTS CLIENT_TESTS)
     add_executable(${test_name} tests/client_tests/${test_name}.cc)
-    target_link_libraries(${test_name} erpc ${GTEST_LIBRARIES} ${LIBRARIES})
+    target_link_libraries(${test_name} PRIVATE erpc ${LIBRARIES})
+    target_link_libraries(${test_name} PRIVATE GTest::gmock GTest::gtest GTest::gmock_main GTest::gtest_main)
     add_test(NAME ${test_name} COMMAND ${test_name})
   endforeach()
 
   foreach(test_name IN LISTS PROTOCOL_TESTS)
     add_executable(${test_name} tests/protocol_tests/${test_name}.cc)
-    target_link_libraries(${test_name} erpc ${GTEST_LIBRARIES} ${LIBRARIES})
+    target_link_libraries(${test_name} PRIVATE erpc ${LIBRARIES})
+    target_link_libraries(${test_name} PRIVATE GTest::gmock GTest::gtest GTest::gmock_main GTest::gtest_main)
     add_test(NAME ${test_name} COMMAND ${test_name})
   endforeach()
 
   foreach(test_name IN LISTS TRANSPORT_TESTS)
     add_executable(${test_name} tests/transport_tests/${test_name}.cc)
-    target_link_libraries(${test_name} erpc ${GTEST_LIBRARIES} ${LIBRARIES})
+    target_link_libraries(${test_name} PRIVATE erpc ${LIBRARIES})
+    target_link_libraries(${test_name} PRIVATE GTest::gmock GTest::gtest GTest::gmock_main GTest::gtest_main)
     add_test(NAME ${test_name} COMMAND ${test_name})
   endforeach()
 
   foreach(test_name IN LISTS UTIL_TESTS)
     add_executable(${test_name} tests/util_tests/${test_name}.cc)
-    target_link_libraries(${test_name} erpc ${GTEST_LIBRARIES} ${LIBRARIES})
+    target_link_libraries(${test_name} PRIVATE erpc ${LIBRARIES})
+    target_link_libraries(${test_name} PRIVATE GTest::gmock GTest::gtest GTest::gmock_main GTest::gtest_main)
   endforeach()
+else()
+  message(STATUS "Not testing enable with -DPERF=OFF")
 endif()
 
 # The app to compile. Only one app is compiled to reduce compile time.
@@ -311,37 +349,29 @@ elseif(APP STREQUAL "log")
   set(LIBRARIES ${LIBRARIES} ${PMEM})
 endif()
 
-if(DPDK_NEEDED STREQUAL "true")
-  message(STATUS "DPDK needed to build eRPC")
-  find_library(DPDK REQUIRED)
-  if(NOT ${DPDK_FOUND})
-    message(STATUS "DPDK library not found")
-    set(LIBRARIES ${LIBRARIES} -Wl,--whole-archive -ldpdk -Wl,--no-whole-archive numa dl ibverbs mlx4 mlx5)
-  else()
-    message(STATUS "DPDK WAS FOUND with ${DPDK_INCLUDE_DIR} , ${DPDK_LIBRARIES}")
-    set(LIBRARIES ${LIBRARIES} -Wl,--whole-archive dpdk -Wl,--no-whole-archive numa dl ibverbs mlx4 mlx5)
-  endif()
-
-  # DPDK include directory. Locating rte_config.h does not work on some systems.
-  # Example: it may be kept in /usr/include/x86_64-linux-gnu/, and symlinked
-  # from the real DPDK include directory (/usr/include/dpdk/).
-  find_path(DPDK_INCLUDE_DIR NAMES rte_ethdev.h PATH_SUFFIXES dpdk)
-  if (DPDK_INCLUDE_DIR)
-    message(STATUS "DPDK include directory = ${DPDK_INCLUDE_DIR}")
-  else()
-    message(FATAL_ERROR "DPDK include directory not found")
-  endif()
-
-  find_path(DPDK_SECOND_INCLUDE_DIR NAMES rte_config.h PATH_SUFFIXES dpdk)
-
-  include_directories(SYSTEM ${DPDK_INCLUDE_DIR} ${DPDK_SECOND_INCLUDE_DIR})
-else()
-  message(STATUS "DPDK not needed to build eRPC")
-endif()
 
 # Using link-time optimization sometimes requires building with sources instead
 # of liberpc. See the hello world example's Makefile for an example of
 # compiling with liberpc.
 add_executable(${APP} apps/${APP}/${APP}.cc ${APP_ADDITIONAL_SOURCES} ${SOURCES})
 target_compile_options(${APP} PRIVATE "-flto")
-target_link_libraries(${APP} ${GTEST_LIBRARIES} ${LIBRARIES})
+target_link_libraries(${APP} ${LIBRARIES} gflags_static)
+
+install(TARGETS erpc
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+        RUNTIME DESTINATION bin
+        INCLUDES DESTINATION include
+        )
+
+set(CPACK_PACKAGE_VENDOR "dePaul Miller")
+SET(CPACK_GENERATOR "DEB")
+SET(CPACK_DEBIAN_PACKAGE_MAINTAINER "dePaul Miller")
+set(CPACK_SOURCE_GENERATOR "TGZ;ZIP")
+set(CPACK_SOURCE_IGNORE_FILES
+        /.git
+        /dist
+        /.*build.*
+        /\\\\.DS_Store
+        )
+include(CPack)
